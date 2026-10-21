@@ -1,0 +1,6 @@
+{
+  "name": "3xAI Farmer — AI-Powered Crop Health Assistant",
+  "description": "AI-powered agricultural assistant helping Indian farmers identify crop diseases, pests, and nutrient deficiencies, assess risks, and receive practical crop-care recommendations in English, Telugu, and Hindi.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
