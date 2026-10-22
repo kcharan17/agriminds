@@ -1,11 +1,19 @@
-import express from "express";
-import { createServer as createViteServer } from "vite";
-import path from "path";
-import { fileURLToPath } from "url";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import dotenv from "dotenv";
-import { GoogleGenAI, Type } from "@google/genai";
+import express from "express";
+import { GoogleGenAI } from "@google/genai";
 
 dotenv.config();
+
+// Global rejection and exception handlers
+process.on("unhandledRejection", (reason, promise) => {
+  console.error("Unhandled Rejection at:", promise, "reason:", reason);
+});
+
+process.on("uncaughtException", (error) => {
+  console.error("Uncaught Exception:", error);
+});
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -20,6 +28,28 @@ const ai = new GoogleGenAI({
     },
   },
 });
+
+// Resilient JSON parser that handles codeblocks or reasoning prefixes from LLMs
+const safeJsonParse = (text: string, fallback: any = {}) => {
+  if (!text) return fallback;
+  try {
+    const clean = text
+      .trim()
+      .replace(/^```json\s*/i, "")
+      .replace(/^```\s*/i, "")
+      .replace(/```\s*$/i, "")
+      .trim();
+    return JSON.parse(clean);
+  } catch {
+    try {
+      const match = text.match(/\{[\s\S]*\}/);
+      if (match) {
+        return JSON.parse(match[0]);
+      }
+    } catch {}
+    return fallback;
+  }
+};
 
 // Helper for fallback diagnostic report
 const getFallbackReport = (cropName = "Tomato", inputType = "photo", language = "en") => {
@@ -72,22 +102,27 @@ app.get("/api/status", (req, res) => {
 });
 
 // Crop Photo Analysis Endpoint
-app.post("/api/analyze-photo", async (req, res) => {
+app.post("/api/analyze-photo", async (req, res, next) => {
   try {
-    const { imageBase64, mimeType, cropName = "Unknown Crop", language = "en" } = req.body;
+    const { imageBase64, mimeType, cropName = "Unknown Crop", language = "en" } = req.body || {};
     
     if (!process.env.GEMINI_API_KEY) {
       return res.json(getFallbackReport(cropName, "photo", language));
     }
 
+    const cleanBase64 = (imageBase64 || "").replace(/^data:image\/[a-z]+;base64,/, "");
+    if (!cleanBase64) {
+      return res.status(400).json({ error: "Missing image data" });
+    }
+
     const imagePart = {
       inlineData: {
         mimeType: mimeType || "image/jpeg",
-        data: imageBase64.replace(/^data:image\/[a-z]+;base64,/, ""),
+        data: cleanBase64,
       },
     };
 
-    const prompt = `You are AgriMinds expert agronomist AI assisting Indian farmers. Analyze this crop image for ${cropName}. 
+    const prompt = `You are 3xAI Farmer expert agronomist AI assisting Indian farmers. Analyze this crop image for ${cropName}. 
     Provide a detailed diagnostic report in ${language === 'te' ? 'Telugu' : language === 'hi' ? 'Hindi' : 'English'}.
     Return ONLY a valid JSON object matching this schema:
     {
@@ -124,8 +159,7 @@ app.post("/api/analyze-photo", async (req, res) => {
       }
     });
 
-    const textResult = response.text || "{}";
-    const parsed = JSON.parse(textResult);
+    const parsed = safeJsonParse(response.text || "", getFallbackReport(cropName, "photo", language));
     res.json({
       report_id: parsed.report_id || "AGRI-" + Math.floor(100000 + Math.random() * 900000),
       created_at: new Date().toISOString(),
@@ -145,23 +179,28 @@ app.post("/api/analyze-photo", async (req, res) => {
     });
   } catch (err: any) {
     console.error("Error in /api/analyze-photo:", err);
-    res.json(getFallbackReport("Crop", "photo", req.body?.language || "en"));
+    res.json(getFallbackReport(req.body?.cropName || "Crop", "photo", req.body?.language || "en"));
   }
 });
 
 // Crop Video Analysis Endpoint
-app.post("/api/analyze-video", async (req, res) => {
+app.post("/api/analyze-video", async (req, res, next) => {
   try {
-    const { videoBase64, mimeType, cropName = "Unknown Crop", language = "en" } = req.body;
+    const { videoBase64, mimeType, cropName = "Unknown Crop", language = "en" } = req.body || {};
 
     if (!process.env.GEMINI_API_KEY) {
       return res.json(getFallbackReport(cropName, "video", language));
     }
 
+    const cleanBase64 = (videoBase64 || "").replace(/^data:video\/[a-z]+;base64,/, "");
+    if (!cleanBase64) {
+      return res.status(400).json({ error: "Missing video data" });
+    }
+
     const videoPart = {
       inlineData: {
         mimeType: mimeType || "video/mp4",
-        data: videoBase64.replace(/^data:video\/[a-z]+;base64,/, ""),
+        data: cleanBase64,
       },
     };
 
@@ -178,7 +217,7 @@ app.post("/api/analyze-video", async (req, res) => {
       }
     });
 
-    const parsed = JSON.parse(response.text || "{}");
+    const parsed = safeJsonParse(response.text || "", getFallbackReport(cropName, "video", language));
     res.json({
       report_id: parsed.report_id || "AGRI-VID-" + Math.floor(100000 + Math.random() * 900000),
       created_at: new Date().toISOString(),
@@ -198,14 +237,14 @@ app.post("/api/analyze-video", async (req, res) => {
     });
   } catch (err: any) {
     console.error("Error in /api/analyze-video:", err);
-    res.json(getFallbackReport("Crop", "video", req.body?.language || "en"));
+    res.json(getFallbackReport(req.body?.cropName || "Crop", "video", req.body?.language || "en"));
   }
 });
 
 // Crop Risk Assessment Endpoint (with Google Search Grounding)
-app.post("/api/risk-assessment", async (req, res) => {
+app.post("/api/risk-assessment", async (req, res, next) => {
   try {
-    const { cropName, location, growthStage, weatherNotes, language = "en" } = req.body;
+    const { cropName, location, growthStage, weatherNotes, language = "en" } = req.body || {};
 
     const prompt = `Perform an agricultural risk assessment for crop ${cropName} in location ${location}, growth stage ${growthStage}, with field notes: "${weatherNotes || 'None'}". 
     Provide actionable risk level (Low, Moderate, High, Critical), primary weather/pest risks, and preventative steps.
@@ -222,13 +261,20 @@ app.post("/api/risk-assessment", async (req, res) => {
       }
     });
 
-    const parsed = JSON.parse(response.text || "{}");
+    const parsed = safeJsonParse(response.text || "", {
+      risk_level: "Moderate",
+      regional_factors: `Seasonal transition in ${location || 'local region'} favoring fungal spore germination.`,
+      primary_risks: ["High humidity risk", "Potential stem borer activity"],
+      recommended_actions: ["Monitor field drainage", "Ensure weed control"],
+      advice_summary: `Risk level is Moderate for ${cropName || 'crop'} at ${growthStage || 'growth'} stage. Maintain field hygiene and scout weekly.`
+    });
+
     res.json({
       risk_level: parsed.risk_level || "Moderate",
-      regional_factors: parsed.regional_factors || `Seasonal transition in ${location} favoring fungal spore germination.`,
-      primary_risks: parsed.primary_risks || ["High humidity risk", "Potential stem borer activity"],
-      recommended_actions: parsed.recommended_actions || ["Monitor field drainage", "Ensure weed control"],
-      advice_summary: parsed.advice_summary || `Risk level is Moderate for ${cropName} at ${growthStage} stage. Maintain field hygiene and scout weekly.`
+      regional_factors: parsed.regional_factors || `Seasonal conditions in ${location || 'local area'}.`,
+      primary_risks: Array.isArray(parsed.primary_risks) ? parsed.primary_risks : ["High humidity risk", "Potential pest activity"],
+      recommended_actions: Array.isArray(parsed.recommended_actions) ? parsed.recommended_actions : ["Monitor field drainage", "Regular field scouting"],
+      advice_summary: parsed.advice_summary || `Risk level is Moderate for ${cropName || 'crop'}. Maintain field hygiene.`
     });
   } catch (err: any) {
     console.error("Error in /api/risk-assessment:", err);
@@ -242,13 +288,13 @@ app.post("/api/risk-assessment", async (req, res) => {
   }
 });
 
-// Gemini Chat Endpoint with robust fallback
-app.post("/api/chat", async (req, res) => {
+// Gemini Chat Endpoint with robust multilingual fallback
+app.post("/api/chat", async (req, res, next) => {
   try {
-    const { messages, language = "en" } = req.body;
+    const { messages = [], language = "en" } = req.body || {};
     const lastUserMessage = messages[messages.length - 1]?.content || "Hello";
     
-    const systemInstruction = `You are AgriMinds AgriChat, an expert AI agricultural assistant designed for Indian farmers. 
+    const systemInstruction = `You are 3xAI Farmer Assistant, an expert AI agricultural assistant designed for Indian farmers. 
     You provide practical, clear, scientific yet simple crop care advice. 
     Always emphasize sustainable practices, checking local expert advisories, and following approved chemical labels when needed.
     You must respond in ${language === 'te' ? 'Telugu' : language === 'hi' ? 'Hindi' : 'English'}. Keep answers concise, helpful, and respectful.`;
@@ -271,7 +317,7 @@ app.post("/api/chat", async (req, res) => {
     res.json({ reply });
   } catch (err: any) {
     console.error("Error in /api/chat:", err);
-    const { language = "en", messages = [] } = req.body;
+    const { language = "en", messages = [] } = req.body || {};
     const lastMsg = (messages[messages.length - 1]?.content || "").toLowerCase();
 
     let fallback = 
@@ -295,7 +341,8 @@ app.post("/api/chat", async (req, res) => {
 
 // Vite middleware setup for development
 if (process.env.NODE_ENV !== "production") {
-  const vite = await createViteServer({
+  const { createServer } = await import("vite");
+  const vite = await createServer({
     server: { middlewareMode: true },
     appType: "spa",
   });
@@ -307,7 +354,19 @@ if (process.env.NODE_ENV !== "production") {
   });
 }
 
-const PORT = Number(process.env.PORT || 3000);
-app.listen(PORT, "0.0.0.0", () => {
-  console.log(`AgriMinds server running on http://0.0.0.0:${PORT}`);
+// Global Express error handler
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  console.error("Express Error Handler caught:", err);
+  if (!res.headersSent) {
+    res.status(500).json({ error: "An unexpected server error occurred." });
+  }
 });
+
+const PORT = Number(process.env.PORT || 3000);
+if (!process.env.VERCEL) {
+  app.listen(PORT, "0.0.0.0", () => {
+    console.log(`3xAI Farmer server running on http://0.0.0.0:${PORT}`);
+  });
+}
+
+export default app;
