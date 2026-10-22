@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef, Component, ErrorInfo, ReactNode } from "react";
 import { 
   Sprout, 
   Camera, 
@@ -25,6 +25,54 @@ import {
   MicOff,
   Volume2
 } from "lucide-react";
+
+// Error Boundary Component to catch any render-time unhandled rejections or errors
+interface ErrorBoundaryProps {
+  children: ReactNode;
+}
+
+interface ErrorBoundaryState {
+  hasError: boolean;
+  errorMessage: string;
+}
+
+class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  constructor(props: ErrorBoundaryProps) {
+    super(props);
+    this.state = { hasError: false, errorMessage: "" };
+  }
+
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return { hasError: true, errorMessage: error.message || "An unexpected error occurred" };
+  }
+
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    console.error("ErrorBoundary caught an error:", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen bg-[#F8F7F0] flex items-center justify-center p-6 text-center">
+          <div className="max-w-md bg-white p-8 rounded-3xl shadow-lg border border-slate-200 space-y-4">
+            <div className="w-12 h-12 bg-red-100 text-red-600 rounded-2xl flex items-center justify-center mx-auto">
+              <AlertTriangle className="w-6 h-6" />
+            </div>
+            <h2 className="text-xl font-bold text-slate-900">Something went wrong</h2>
+            <p className="text-sm text-slate-600">The application encountered an issue. Click below to reload.</p>
+            <button
+              onClick={() => window.location.reload()}
+              className="bg-[#245C3A] text-white px-6 py-2.5 rounded-xl font-semibold text-sm hover:bg-[#1d4b2f] transition-all"
+            >
+              Reload 3xAI Farmer
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 // Translations dictionary
 const translations: Record<string, Record<string, string>> = {
@@ -172,64 +220,75 @@ interface Report {
   expert_review_required: boolean;
 }
 
-export default function App() {
+const DEFAULT_REPORTS: Report[] = [
+  {
+    report_id: "AGRI-TOM-2024-8841",
+    created_at: new Date(Date.now() - 3600000 * 2).toISOString(),
+    crop_name: "Tomato (Solanum lycopersicum)",
+    location: "Warangal, Telangana",
+    growth_stage: "Fruiting",
+    input_type: "photo",
+    observations: "The ripe tomato fruit displays a large, dark brown, sunken, leathery rot lesion on one side with apparent puncture/entry holes characteristic of insect damage followed by secondary rot. Adjacent mature foliage...",
+    possible_causes: ["Fruit Borer (Helicoverpa armigera)", "Secondary Bacterial/Fungal Rot"],
+    confidence: "85%",
+    uncertainty: "Visual inspection; field scouting recommended.",
+    recommended_actions: {
+      immediate_inspection: "Check all ripening fruits for entry holes and larval presence.",
+      low_cost_actions: "Handpick and destroy infested damaged fruits away from fields.",
+      preventive_measures: "Install pheromone traps (5 per acre) for adult moth monitoring.",
+      re_inspection_schedule: "Inspect field every 2 days.",
+      expert_assistance: "Contact local agricultural extension officer if damage exceeds 10%.",
+      chemical_treatment: "Apply recommended eco-friendly biopesticides (Bt or neem-based formulations) following safety guidelines."
+    },
+    preventive_measures: "Maintain field sanitation.",
+    urgency: "High",
+    selected_language: "en",
+    expert_review_required: false
+  },
+  {
+    report_id: "AGRI-984210",
+    created_at: new Date(Date.now() - 3600000 * 24).toISOString(),
+    crop_name: "Tomato",
+    location: "Warangal, Telangana",
+    growth_stage: "Flowering & Fruiting",
+    input_type: "photo",
+    observations: "Concentric rings on lower leaves with yellow halos. Early blight symptoms observed.",
+    possible_causes: ["Alternaria solani (Early Blight)", "High leaf wetness duration"],
+    confidence: "88%",
+    uncertainty: "Visual assessment; laboratory confirmation recommended if spreading.",
+    recommended_actions: {
+      immediate_inspection: "Check lower canopy leaves for dark brown target spots.",
+      low_cost_actions: "Prune heavily infected lower leaves to improve air circulation.",
+      preventive_measures: "Apply drip irrigation to keep foliage dry.",
+      re_inspection_schedule: "Check plants again in 3 days.",
+      expert_assistance: "Consult District Agricultural Officer if spots appear on upper fruits.",
+      chemical_treatment: "Copper hydroxide or chlorothalonil spray if infection exceeds 15%."
+    },
+    preventive_measures: "Practice 2-year crop rotation with non-solanaceous crops.",
+    urgency: "Moderate",
+    selected_language: "en",
+    expert_review_required: false
+  }
+];
+
+function MainApp() {
   const [lang, setLang] = useState<string>("en");
   const [view, setView] = useState<"dashboard" | "photo" | "video" | "risk" | "report" | "history">("dashboard");
+  
+  // Safe localStorage initialization
   const [reports, setReports] = useState<Report[]>(() => {
-    const saved = localStorage.getItem("agriminds_reports");
-    if (saved) {
-      try { return JSON.parse(saved); } catch { return []; }
-    }
-    return [
-      {
-        report_id: "AGRI-TOM-2024-8841",
-        created_at: new Date(Date.now() - 3600000 * 2).toISOString(),
-        crop_name: "Tomato (Solanum lycopersicum)",
-        location: "Warangal, Telangana",
-        growth_stage: "Fruiting",
-        input_type: "photo",
-        observations: "The ripe tomato fruit displays a large, dark brown, sunken, leathery rot lesion on one side with apparent puncture/entry holes characteristic of insect damage followed by secondary rot. Adjacent mature foliage...",
-        possible_causes: ["Fruit Borer (Helicoverpa armigera)", "Secondary Bacterial/Fungal Rot"],
-        confidence: "85%",
-        uncertainty: "Visual inspection; field scouting recommended.",
-        recommended_actions: {
-          immediate_inspection: "Check all ripening fruits for entry holes and larval presence.",
-          low_cost_actions: "Handpick and destroy infested damaged fruits away from fields.",
-          preventive_measures: "Install pheromone traps (5 per acre) for adult moth monitoring.",
-          re_inspection_schedule: "Inspect field every 2 days.",
-          expert_assistance: "Contact local agricultural extension officer if damage exceeds 10%.",
-          chemical_treatment: "Apply recommended eco-friendly biopesticides (Bt or neem-based formulations) following safety guidelines."
-        },
-        preventive_measures: "Maintain field sanitation.",
-        urgency: "High",
-        selected_language: "en",
-        expert_review_required: false
-      },
-      {
-        report_id: "AGRI-984210",
-        created_at: new Date(Date.now() - 3600000 * 24).toISOString(),
-        crop_name: "Tomato",
-        location: "Warangal, Telangana",
-        growth_stage: "Flowering & Fruiting",
-        input_type: "photo",
-        observations: "Concentric rings on lower leaves with yellow halos. Early blight symptoms observed.",
-        possible_causes: ["Alternaria solani (Early Blight)", "High leaf wetness duration"],
-        confidence: "88%",
-        uncertainty: "Visual assessment; laboratory confirmation recommended if spreading.",
-        recommended_actions: {
-          immediate_inspection: "Check lower canopy leaves for dark brown target spots.",
-          low_cost_actions: "Prune heavily infected lower leaves to improve air circulation.",
-          preventive_measures: "Apply drip irrigation to keep foliage dry.",
-          re_inspection_schedule: "Check plants again in 3 days.",
-          expert_assistance: "Consult District Agricultural Officer if spots appear on upper fruits.",
-          chemical_treatment: "Copper hydroxide or chlorothalonil spray if infection exceeds 15%."
-        },
-        preventive_measures: "Practice 2-year crop rotation with non-solanaceous crops.",
-        urgency: "Moderate",
-        selected_language: "en",
-        expert_review_required: false
+    try {
+      const saved = localStorage.getItem("3xai_farmer_reports") || localStorage.getItem("agriminds_reports");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed;
+        }
       }
-    ];
+    } catch (err) {
+      console.warn("Could not load reports from localStorage:", err);
+    }
+    return DEFAULT_REPORTS;
   });
   
   const [activeReport, setActiveReport] = useState<Report | null>(null);
@@ -262,22 +321,51 @@ export default function App() {
   const [chatLoading, setChatLoading] = useState(false);
   const [isListening, setIsListening] = useState(false);
 
+  const recognitionRef = useRef<any>(null);
   const t = translations[lang] || translations.en;
 
+  // Safe localStorage save
   useEffect(() => {
-    localStorage.setItem("agriminds_reports", JSON.stringify(reports));
+    try {
+      localStorage.setItem("3xai_farmer_reports", JSON.stringify(reports));
+    } catch (e) {
+      console.warn("Storage quota exceeded or unavailable:", e);
+    }
   }, [reports]);
 
-  // Handle Photo Upload
+  // Clean up recognition on unmount
+  useEffect(() => {
+    return () => {
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.abort();
+        } catch {}
+      }
+    };
+  }, []);
+
+  // Handle Photo Upload with size validation and error handling
   const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setErrorMsg("");
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
+      if (file.size > 15 * 1024 * 1024) {
+        setErrorMsg("Photo size exceeds 15MB. Please choose a smaller photo.");
+        return;
+      }
       setPhotoFile(file);
       const reader = new FileReader();
       reader.onload = (uploadEvent) => {
         setPhotoPreview(uploadEvent.target?.result as string);
       };
-      reader.readAsDataURL(file);
+      reader.onerror = () => {
+        setErrorMsg("Failed to read image file. Please try another image.");
+      };
+      try {
+        reader.readAsDataURL(file);
+      } catch (err) {
+        setErrorMsg("Error opening photo file.");
+      }
     }
   };
 
@@ -297,32 +385,53 @@ export default function App() {
         body: JSON.stringify({
           imageBase64: photoPreview,
           mimeType: photoFile?.type || "image/jpeg",
-          cropName: photoCropName,
+          cropName: photoCropName || "Crop",
           language: lang
         })
       });
+
+      if (!res.ok) {
+        throw new Error(`Server returned status ${res.status}`);
+      }
+
       const data = await res.json();
-      setReports(prev => [data, ...prev]);
-      setActiveReport(data);
-      setView("report");
+      if (data && data.report_id) {
+        setReports(prev => [data, ...prev]);
+        setActiveReport(data);
+        setView("report");
+      } else {
+        throw new Error("Invalid response format received from server.");
+      }
     } catch (err) {
-      console.error(err);
-      setErrorMsg("Failed to analyze photo. Please try again.");
+      console.error("Photo analysis error:", err);
+      setErrorMsg("Failed to complete photo analysis. Please check your network and try again.");
     } finally {
       setLoading(false);
     }
   };
 
-  // Handle Video Upload
+  // Handle Video Upload with size validation
   const handleVideoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setErrorMsg("");
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
+      if (file.size > 50 * 1024 * 1024) {
+        setErrorMsg("Video size exceeds 50MB. Please choose a shorter clip.");
+        return;
+      }
       setVideoFile(file);
       const reader = new FileReader();
       reader.onload = (uploadEvent) => {
         setVideoPreview(uploadEvent.target?.result as string);
       };
-      reader.readAsDataURL(file);
+      reader.onerror = () => {
+        setErrorMsg("Failed to read video file. Please try another video.");
+      };
+      try {
+        reader.readAsDataURL(file);
+      } catch (err) {
+        setErrorMsg("Error opening video file.");
+      }
     }
   };
 
@@ -342,16 +451,25 @@ export default function App() {
         body: JSON.stringify({
           videoBase64: videoPreview,
           mimeType: videoFile?.type || "video/mp4",
-          cropName: videoCropName,
+          cropName: videoCropName || "Crop",
           language: lang
         })
       });
+
+      if (!res.ok) {
+        throw new Error(`Server returned status ${res.status}`);
+      }
+
       const data = await res.json();
-      setReports(prev => [data, ...prev]);
-      setActiveReport(data);
-      setView("report");
+      if (data && data.report_id) {
+        setReports(prev => [data, ...prev]);
+        setActiveReport(data);
+        setView("report");
+      } else {
+        throw new Error("Invalid video diagnostic report format.");
+      }
     } catch (err) {
-      console.error(err);
+      console.error("Video analysis error:", err);
       setErrorMsg("Failed to analyze video. Please try again.");
     } finally {
       setLoading(false);
@@ -376,62 +494,86 @@ export default function App() {
           language: lang
         })
       });
+
+      if (!res.ok) {
+        throw new Error(`Server returned status ${res.status}`);
+      }
+
       const data = await res.json();
       setRiskResult(data);
     } catch (err) {
-      console.error(err);
+      console.error("Risk assessment error:", err);
       setErrorMsg("Failed to fetch risk assessment.");
     } finally {
       setLoading(false);
     }
   };
 
-  // Click-to-Talk Voice Input (Speech Recognition supporting Telugu, Hindi, English)
+  // Click-to-Talk Voice Input (Safe Speech Recognition)
   const toggleListen = () => {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
-      alert("Speech recognition is not supported in this browser. Please use Chrome, Edge, or Safari.");
+      setErrorMsg("Speech recognition is not supported in this browser. Please use Chrome, Edge, or Safari.");
       return;
     }
 
-    if (isListening) {
+    if (isListening && recognitionRef.current) {
+      try {
+        recognitionRef.current.stop();
+      } catch {}
       setIsListening(false);
       return;
     }
 
-    const recognition = new SpeechRecognition();
-    recognition.lang = lang === 'te' ? 'te-IN' : lang === 'hi' ? 'hi-IN' : 'en-IN';
-    recognition.interimResults = false;
-    recognition.maxAlternatives = 1;
+    try {
+      const recognition = new SpeechRecognition();
+      recognitionRef.current = recognition;
+      recognition.lang = lang === 'te' ? 'te-IN' : lang === 'hi' ? 'hi-IN' : 'en-IN';
+      recognition.interimResults = false;
+      recognition.maxAlternatives = 1;
 
-    recognition.onstart = () => {
-      setIsListening(true);
-    };
+      recognition.onstart = () => {
+        setIsListening(true);
+      };
 
-    recognition.onresult = (event: any) => {
-      const speechToText = event.results[0][0].transcript;
-      setChatInput(speechToText);
+      recognition.onresult = (event: any) => {
+        if (event.results && event.results[0] && event.results[0][0]) {
+          const speechToText = event.results[0][0].transcript;
+          setChatInput(speechToText);
+        }
+        setIsListening(false);
+      };
+
+      recognition.onerror = (e: any) => {
+        console.warn("Speech recognition error:", e);
+        setIsListening(false);
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+      };
+
+      recognition.start();
+    } catch (err) {
+      console.warn("Could not start speech recognition:", err);
       setIsListening(false);
-    };
-
-    recognition.onerror = () => {
-      setIsListening(false);
-    };
-
-    recognition.onend = () => {
-      setIsListening(false);
-    };
-
-    recognition.start();
+    }
   };
 
-  // Text-to-Speech playback for assistant responses
+  // Safe Text-to-Speech playback
   const speakText = (text: string) => {
-    if ('speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = lang === 'te' ? 'te-IN' : lang === 'hi' ? 'hi-IN' : 'en-IN';
-      window.speechSynthesis.speak(utterance);
+    if (typeof window !== "undefined" && 'speechSynthesis' in window) {
+      try {
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.lang = lang === 'te' ? 'te-IN' : lang === 'hi' ? 'hi-IN' : 'en-IN';
+        utterance.onerror = (e) => {
+          console.warn("SpeechSynthesis error:", e);
+        };
+        window.speechSynthesis.speak(utterance);
+      } catch (err) {
+        console.warn("Speech synthesis error:", err);
+      }
     }
   };
 
@@ -452,13 +594,22 @@ export default function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messages: newMsgs, language: lang })
       });
+
+      if (!res.ok) {
+        throw new Error(`Server returned status ${res.status}`);
+      }
+
       const data = await res.json();
       const reply = data.reply || "I am here to help you with your crops.";
       setChatMessages([...newMsgs, { role: "model", content: reply }]);
       speakText(reply);
     } catch (err) {
-      console.error(err);
-      const fallbackReply = "I apologize, I am experiencing temporary connectivity issues. Please try your question again in a moment.";
+      console.error("Chat error:", err);
+      const fallbackReply = lang === 'te' 
+        ? "మీ పంట ప్రశ్నను స్వీకరించాను. దయచేసి కాసేపటి తర్వాత మళ్లీ ప్రయత్నించండి."
+        : lang === 'hi'
+        ? "आपकी फसल का प्रश्न प्राप्त हुआ। कृपया कुछ क्षणों बाद पुनः प्रयास करें।"
+        : "I received your farming question. Please check field drainage and contact your local agronomist.";
       setChatMessages([...newMsgs, { role: "model", content: fallbackReply }]);
       speakText(fallbackReply);
     } finally {
@@ -530,7 +681,7 @@ export default function App() {
               <AlertTriangle className="w-5 h-5 text-red-500 shrink-0" />
               <span>{errorMsg}</span>
             </div>
-            <button onClick={() => setErrorMsg("")} className="text-red-500 hover:text-red-700 font-bold">×</button>
+            <button onClick={() => setErrorMsg("")} className="text-red-500 hover:text-red-700 font-bold text-base leading-none">×</button>
           </div>
         )}
 
@@ -728,7 +879,12 @@ export default function App() {
                 <div className="border-2 border-dashed border-slate-300 rounded-2xl p-6 text-center hover:border-[#245C3A] transition-colors relative bg-[#F8F7F0]">
                   {photoPreview ? (
                     <div className="space-y-4">
-                      <img src={photoPreview} alt="Preview" className="max-h-64 mx-auto rounded-xl shadow object-contain" />
+                      <img 
+                        src={photoPreview} 
+                        alt="Crop photo preview" 
+                        referrerPolicy="no-referrer"
+                        className="max-h-64 mx-auto rounded-xl shadow object-contain" 
+                      />
                       <button onClick={() => { setPhotoPreview(null); setPhotoFile(null); }} className="text-xs text-red-600 font-semibold underline">
                         Remove / Choose Another
                       </button>
@@ -737,7 +893,7 @@ export default function App() {
                     <label className="cursor-pointer space-y-2 block">
                       <Upload className="w-10 h-10 text-[#245C3A] mx-auto" />
                       <p className="text-sm font-semibold text-slate-800">Click to upload photo or take picture</p>
-                      <p className="text-xs text-slate-500">Supports JPG, PNG up to 10MB</p>
+                      <p className="text-xs text-slate-500">Supports JPG, PNG up to 15MB</p>
                       <input type="file" accept="image/*" onChange={handlePhotoChange} className="hidden" />
                     </label>
                   )}
@@ -1128,5 +1284,13 @@ export default function App() {
         <p>3xAI Farmer — AgriTech Hackathon 2026. Empowering farmers with Gemini multimodal AI and Google Search Grounding.</p>
       </footer>
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <ErrorBoundary>
+      <MainApp />
+    </ErrorBoundary>
   );
 }
